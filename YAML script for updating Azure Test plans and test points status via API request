@@ -1,0 +1,56 @@
+#YAML script for updating Azure Test plans and test points status via API request
+trigger:
+  - main
+
+
+pool:
+  name: 'RB Windows 2019'
+
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: 'Use Python 3.8'
+    inputs:
+      versionSpec: '3.8'
+      addToPath: true
+
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install pytest
+      pip install pyspark
+    displayName: 'Install pytest and pyspark'
+  
+  - script: |
+      python unit_test.py --doctest-modules --doctest-continue-on-failure --junitxml=junit/test-results.xml
+    displayName: 'Execute pytest'
+    continueOnError: true
+
+
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/*.xml'
+      codeCoverageEnabled: true
+
+
+  - task: PowerShell@2
+    displayName: 'Make API request GET AND UPDATE using PowerShell'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $headerValue = @{
+            'Authorization' = 'Basic ' + [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":$(PAT1)"))
+        }
+
+
+        $url = Invoke-WebRequest -Uri "https://dev.azure.com/AzureOrganizationName/AzureProjectName/_apis/testplan/Plans/470000/Suites/470333/TestPoint?includePointDetails=true&returnIdentityRef=true&api-version=7.1-preview.2" -Method GET -Headers $headerValue
+        $url.content
+        $TestpointUrl = "https://dev.azure.com/AzureOrganizationName/AzureProjectName/_apis/testplan/Plans/470000/Suites/470333/points/4700?api-version=7.1-preview.2"
+        $body = @{
+          outcome = "passed"
+        } | ConvertTo-Json -Depth 100
+
+
+        $response1 = Invoke-RestMethod -Uri $TestpointUrl -Method Patch -ContentType "application/json" -Headers $headerValue -Body $body
